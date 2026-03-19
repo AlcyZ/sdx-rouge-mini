@@ -2,6 +2,9 @@ class_name MageCharacter extends CharacterBody3D
 
 signal health_changed(current: float, total: float)
 signal mana_changed(current: float, total: float)
+signal casting_started()
+signal casting_end()
+signal casting_progressed(current: float, total: float)
 
 @export_group("Player properties")
 @export var max_speed = 5.0
@@ -22,14 +25,13 @@ signal mana_changed(current: float, total: float)
 @export var path_full_body_locomotion_blend: String
 @export var path_upper_body_blend2: String
 
-@export_group("Animation - State names")
-@export var state_name_shoot: String
-@export var state_name_raise: String
+@export_group("Animation - data")
+@export var animation_shoot: SpellAnimationData
+@export var animation_raise: SpellAnimationData
 
 @onready var pivot := $Pivot
 @onready var wandspawn_node := $Pivot/Rig_Medium/Skeleton3D/Mage_HandslotRight/Mage_WeaponContainerRight/Mage_Wand/Mage_WandSpawn
 @onready var aim_decal := $AimTarget
-
 
 var stats: Stats
 
@@ -40,7 +42,7 @@ var lock: SimpleLock
 var anim: Animator
 var processor: Processor
 
-var spell: Spell
+var spell: MageSpell
 
 func _ready() -> void:
 	stats = Stats.new(self)
@@ -58,14 +60,22 @@ func _ready() -> void:
 	)
 	processor = Processor.new(self, anim.blender)
 	
-	#spell = Spell.new(self, [state_name_shoot])
-	spell = Spell.create(self,  [state_name_shoot, state_name_raise])
+	spell = MageSpell.create(self,  [animation_shoot.state_name, animation_raise.state_name])
 
 func notify_health_changed(current: float, total: float) -> void:
 	health_changed.emit(current, total)
 
 func notify_mana_changed(current: float, total: float) -> void:
 	mana_changed.emit(current, total)
+
+func notify_casting_started() -> void:
+	casting_started.emit()
+
+func notify_casting_end() -> void:
+	casting_end.emit()
+
+func notify_casting_progressed(current: float, total: float) -> void:
+	casting_progressed.emit(current, total)
 
 func _process(delta: float) -> void:
 	conditional_queue.process(delta)
@@ -93,13 +103,11 @@ class Processor:
 	var input: InputHandler
 	var velocity: Velocity
 	var blend: Blend
-	var spell: Spell
 	
 	func _init(mage: MageCharacter, blender: MageCharacter.Animator.Blender):
 		input = InputHandler.new(mage)
 		velocity = Velocity.new(mage)
 		blend = Blend.new(mage, blender)
-		spell = Spell.new(mage)
 	
 	class InputHandler extends HasMage:
 		func handle(event: InputEvent) -> void:
@@ -178,10 +186,6 @@ class Processor:
 		
 		func _get_speed() -> float:
 			return Vector3(_mage.velocity.x, 0, _mage.velocity.z).length()
-	
-	class Spell extends HasMage:
-		func process(_delta: float) -> void:
-			_mage.spell.execute()
 
 class Stats extends HasMage:
 	var _max_health := 100.0
@@ -208,41 +212,39 @@ class Stats extends HasMage:
 
 class Animator:
 	var _full_body_playback: AnimationUtil.Playback
-	var _right_arm_playback: AnimationUtil.Playback
+	var _upper_body_playback: AnimationUtil.Playback
 	
 	var blender: Blender
 	
 	func _init(
 		full_body_playback: AnimationUtil.Playback,
-		right_arm_playback: AnimationUtil.Playback,
+		upper_body_playback: AnimationUtil.Playback,
 		p_blender: Blender
 	) -> void:
 		_full_body_playback = full_body_playback
-		_right_arm_playback = right_arm_playback
+		_upper_body_playback = upper_body_playback
 		blender = p_blender
 	
 	func play_full_body(to_node: StringName, mode: AnimationUtil.Play = AnimationUtil.Play.Travel) -> void:
 		_play(_full_body_playback, to_node, mode)
 	
 	func play_upper_body(to_node: StringName, mode: AnimationUtil.Play = AnimationUtil.Play.Travel) -> void:
-		_play(_right_arm_playback, to_node, mode)
+		_play(_upper_body_playback, to_node, mode)
 	
 	func _play(playback: AnimationUtil.Playback, to_node: StringName, mode: AnimationUtil.Play = AnimationUtil.Play.Travel):
 		playback.play(to_node, mode)
 	
-	func get_current_node(of: PlaybackRegion) -> StringName:
-		match of:
-			PlaybackRegion.Fullbody:
-				return _full_body_playback.get_current_node()
-			PlaybackRegion.Upperbody:
-				return _right_arm_playback.get_current_node()
-		
-		return ""
+	func get_current_full_body_node() -> StringName:
+		return _full_body_playback.get_current_node()
 	
-	enum PlaybackRegion {
-		Fullbody,
-		Upperbody,
-	}
+	func get_current_full_body_play_position():
+		return _full_body_playback.get_current_play_position()
+	
+	func get_current_upper_body_node() -> StringName:
+		return _upper_body_playback.get_current_node()
+	
+	func get_current_upper_body_play_position():
+		return _upper_body_playback.get_current_play_position()
 	
 	class Blender:
 		var _mage: MageCharacter
@@ -301,197 +303,3 @@ class Animator:
 			var blender = Animator.Blender.new(mage, anim_tree, paths)
 			
 			return Animator.new(full_body_playback, right_arm_playback, blender)
-
-enum CQueueTask {
-	FinishAttack,
-}
-
-class Spell:
-	var registry: Registry
-	var _active: BaseSpell
-	var _buffered: BaseSpell
-	var _attack_anim_names: Array[String]
-	
-	func _init(p_registry: Registry, attack_anim_names: Array[String]) -> void:
-		registry = p_registry
-		_attack_anim_names = attack_anim_names
-	
-	static func create(mage: MageCharacter, attack_anim_names: Array[String]) -> Spell:
-		return Spell.new(Registry.new(mage), attack_anim_names)
-	
-	func prepare(spell: BaseSpell) -> void:
-		if _active != null:
-			_active.cancel()
-		_active = spell
-		_active.prepare()
-	
-	func handle_input(event: InputEvent) -> bool:
-		if _active != null:
-			return _active.handle_input(event)
-		return false
-	
-	func preparing(delta: float) -> void:
-		if _active != null:
-			_active.preparing(delta)
-	
-	func buffer(spell: BaseSpell) -> void:
-		if _buffered != null:
-			_buffered.cancel()
-		_buffered = spell
-	
-	func buffer_active() -> void:
-		if _active != null:
-			buffer(_active)
-			_active = null
-	
-	func is_buffered(spell: BaseSpell) -> bool:
-		return _buffered == spell
-	
-	func release() -> void:
-		if _buffered != null:
-			_buffered.release()
-			_buffered = null
-	
-	func is_attack_anim_name(name: StringName) -> bool:
-		return _attack_anim_names.has(name)
-	
-	func unset_when_active(spell: BaseSpell) -> void:
-		if _active == spell:
-			_active = null
-	
-	class Registry:
-		var bolt: Firebolt
-		var pulse: Firepulse
-		var meteor: Meteor
-		
-		func _init(mage: MageCharacter) -> void:
-			bolt = Firebolt.new(mage)
-			pulse = Firepulse.new(mage)
-			meteor = Meteor.new(mage)
-	
-	class BaseSpell extends HasMage:
-		func prepare() -> void: push_error("[MageCharacter][Spell][BaseSpell].prepare() must be overriden by child implementations")
-		func preparing(_delta: float) -> void: push_error("[MageCharacter][Spell][BaseSpell].preparing() must be overriden by child implementations")
-		func release() -> void: push_error("[MageCharacter][Spell][BaseSpell].release() must be overriden by child implementations")
-		func cancel() -> void: push_error("[MageCharacter][Spell][BaseSpell].cancel() must be overriden by child implementations")
-		func handle_input(_event: InputEvent) -> bool: 
-			push_error("[MageCharacter][Spell][BaseSpell].push_error() must be overriden by child implementations")
-			return false
-		
-		func _init_at_wand_spawnpoint(scene: PackedScene) -> Node3D:
-			var node = _init_scene(scene)
-			node.global_position = _mage.wandspawn_node.global_position
-			
-			node.global_basis = _mage.pivot.global_basis
-			node.global_basis = node.global_basis.rotated(Vector3.UP, PI)
-			node.global_basis.z.y = 0
-			node.global_basis = node.global_basis.orthonormalized()
-			
-			return node
-		
-		func _init_scene(scene: PackedScene) -> Node3D:
-			var node = scene.instantiate()
-			_mage.get_tree().current_scene.add_child(node)
-			return node
-		
-		func _handle_upper_body_blend2():
-			_mage.anim.blender.blend2_upper_body(1.0, 0.075)
-			
-			_mage.conditional_queue.queue(
-				CQueueTask,
-				CQueueTask.FinishAttack,
-				func(_d, task: ConditionalQueue.ConditionalQueueTask) -> bool:
-					var current = _mage.anim.get_current_node(Animator.PlaybackRegion.Upperbody)
-					var is_attack_animation = _mage.spell.is_attack_anim_name(current)
-					var is_started = task.data.get("started", false)
-					
-					# playback travel occures after the setup of this callback,
-					# therefore it is necessary to check if the queue was started yet
-					if not is_started and is_attack_animation:
-						task.data.set("started", true)
-						return false
-					
-					return is_started and not is_attack_animation,
-					func(_d): _mage.anim.blender.blend2_upper_body(0.0)
-			)
-	
-	class InstantSpell extends BaseSpell:
-		func preparing(_delta: float) -> void: pass
-		func cancel() -> void: pass
-		func handle_input(_event: InputEvent) -> bool: return false
-		
-	class Firepulse extends InstantSpell:
-		func release():
-			var node = _init_at_wand_spawnpoint(_mage.firepulse_data.scene)
-			node.scale = Vector3(3, 3, 3)
-			
-			var distance = 1.75
-			var forward = _mage.pivot.global_transform.basis.z
-			
-			node.global_position += forward * distance
-		
-		func prepare() -> void:
-			_handle_upper_body_blend2()
-			_mage.anim.play_upper_body(_mage.state_name_shoot, AnimationUtil.Play.Start)
-			_mage.spell.buffer_active()
-	
-	class Firebolt extends InstantSpell:
-		func release():
-			_init_at_wand_spawnpoint(_mage.firebolt_data.scene)
-		
-		func prepare():
-			_handle_upper_body_blend2()
-			_mage.anim.play_upper_body(_mage.state_name_shoot, AnimationUtil.Play.Start)
-			_mage.spell.buffer_active()
-	
-	class Meteor extends BaseSpell:
-		var _aim_pos := Vector3.ZERO
-		
-		func release():
-			var node = _mage.meteor_data.scene.instantiate()
-			node.position = _aim_pos
-			_mage.get_tree().current_scene.add_child(node)
-		
-		func prepare():
-			_mage.camera_node.use_visible_mouse()
-			_mage.aim_decal.visible = true
-		
-		func cancel() -> void:
-			_mage.camera_node.use_captured_mouse()
-			_mage.aim_decal.visible = false
-			_mage.spell.unset_when_active(self)
-		
-		func handle_input(event: InputEvent) -> bool:
-			if event.is_action_pressed("ui_cancel"):
-				cancel()
-				return true
-			
-			if event.is_action_pressed("attack"):
-				_handle_upper_body_blend2()
-				_mage.anim.play_upper_body(_mage.state_name_raise, AnimationUtil.Play.Start)
-				_mage.camera_node.use_visible_mouse()
-				_mage.aim_decal.visible = false
-				
-				_mage.spell.buffer_active()
-				_mage.camera_node.use_captured_mouse()
-				
-				return true
-			
-			return false
-		
-		func preparing(_delta: float) -> void:
-			var cast_range = 20.0 # Todo: replace with configurable value
-			var mouse_pos = _mage.get_viewport().get_mouse_position()
-			var camera = _mage.get_viewport().get_camera_3d()
-			
-			var origin = camera.project_ray_origin(mouse_pos)
-			var end = origin + camera.project_ray_normal(mouse_pos) * cast_range
-			
-			var query = PhysicsRayQueryParameters3D.create(origin, end)
-			query.exclude = [_mage.get_rid()]
-			
-			var result = _mage.get_world_3d().direct_space_state.intersect_ray(query)
-			
-			if result:
-				_mage.aim_decal.global_position = result.position
-				_aim_pos = result.position
