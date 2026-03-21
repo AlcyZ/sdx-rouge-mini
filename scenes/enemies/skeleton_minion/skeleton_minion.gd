@@ -1,5 +1,7 @@
 class_name SkeletonMinion extends CharacterBody3D
 
+signal died()
+
 @export_group("Skeleton properties")
 @export var data: EnemyData
 
@@ -86,6 +88,7 @@ func on_death_anim_finished(anim_name: StringName) -> void:
 	if anim_name == death_anim_name:
 		anim_tree.animation_finished.disconnect(on_death_anim_finished)
 		await get_tree().create_timer(1.0).timeout
+		died.emit()
 		queue_free()
 
 func on_death_anim_finished_b(anim_name: StringName) -> void:
@@ -178,10 +181,10 @@ class Animator:
 		_tree.set(paths.oneshot_hit_strong, AnimationNodeOneShot.ONE_SHOT_REQUEST_FIRE)
 	
 	func oneshot_spawn_air() -> void:
-		_tree.set(paths.oneshot_hit, AnimationNodeOneShot.ONE_SHOT_REQUEST_FIRE)
+		_tree.set(paths.oneshot_spawn_air, AnimationNodeOneShot.ONE_SHOT_REQUEST_FIRE)
 	
 	func oneshot_spawn_ground() -> void:
-		_tree.set(paths.oneshot_hit, AnimationNodeOneShot.ONE_SHOT_REQUEST_FIRE)
+		_tree.set(paths.oneshot_spawn_ground, AnimationNodeOneShot.ONE_SHOT_REQUEST_FIRE)
 	
 	func _play(playback: AnimationUtil.Playback, to_node: StringName, mode: AnimationUtil.Play = AnimationUtil.Play.Travel):
 		playback.play(to_node, mode)

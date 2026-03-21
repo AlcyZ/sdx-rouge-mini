@@ -188,6 +188,9 @@ class PatrolController:
 		_patrol_point_size = minion.patrol_points.size()
 	
 	func next_patrol_point():
+		if _patrol_point_size == 0:
+			return
+		
 		if _patrol_index + 1 >= _patrol_point_size:
 			_patrol_index = 0
 		else:
