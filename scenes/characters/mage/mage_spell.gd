@@ -1,8 +1,8 @@
-class_name MageSpell
+class_name MageAbilities
 
 var registry: Registry
-var _active: BaseSpell
-var _buffered: BaseSpell
+var _active_spell: BaseSpell
+var _buffered_spell: BaseSpell
 var _attack_anim_names: Array[String]
 
 func _init(p_registry: Registry, attack_anim_names: Array[String]) -> void:
@@ -12,7 +12,7 @@ func _init(p_registry: Registry, attack_anim_names: Array[String]) -> void:
 static func create(
 	mage: MageCharacter,
 	attack_anim_names: Array[String]
-) -> MageSpell:
+) -> MageAbilities:
 	var player: AnimationPlayer = mage.anim_tree.get_node(mage.anim_tree.anim_player)
 	
 	var firebolt = Firebolt.new(mage, SpellAnimation.create(
@@ -33,50 +33,50 @@ static func create(
 		player,
 	))
 	
-	return MageSpell.new(Registry.new(firebolt, firepulse, meteor), attack_anim_names)
+	return MageAbilities.new(Registry.new(firebolt, firepulse, meteor), attack_anim_names)
 
-func prepare(spell: BaseSpell) -> void:
-	if _active != null:
-		_active.cancel()
-	_active = spell
-	_active.prepare()
+func prepare_spell(spell: BaseSpell) -> void:
+	if _active_spell != null:
+		_active_spell.cancel()
+	_active_spell = spell
+	_active_spell.prepare()
 
 func handle_input(event: InputEvent) -> bool:
-	if _active != null:
-		return _active.handle_input(event)
+	if _active_spell != null:
+		return _active_spell.handle_input(event)
 	return false
 
 func preparing(delta: float) -> void:
-	if _active != null:
-		_active.preparing(delta)
+	if _active_spell != null:
+		_active_spell.preparing(delta)
 	
-	if _buffered != null:
-		_buffered.casting()
+	if _buffered_spell != null:
+		_buffered_spell.casting()
 
-func buffer(spell: BaseSpell) -> void:
-	if _buffered != null:
-		_buffered.cancel()
-	_buffered = spell
+func buffer_spell(spell: BaseSpell) -> void:
+	if _buffered_spell != null:
+		_buffered_spell.cancel()
+	_buffered_spell = spell
 
-func buffer_active() -> void:
-	if _active != null:
-		buffer(_active)
-		_active = null
+func buffer_active_spell() -> void:
+	if _active_spell != null:
+		buffer_spell(_active_spell)
+		_active_spell = null
 
 func is_buffered(spell: BaseSpell) -> bool:
-	return _buffered == spell
+	return _buffered_spell == spell
 
 func release() -> void:
-	if _buffered != null:
-		_buffered.release()
-		_buffered = null
+	if _buffered_spell != null:
+		_buffered_spell.release()
+		_buffered_spell = null
 
 func is_attack_anim_name(name: StringName) -> bool:
 	return _attack_anim_names.has(name)
 
 func unset_when_active(spell: BaseSpell) -> void:
-	if _active == spell:
-		_active = null
+	if _active_spell == spell:
+		_active_spell = null
 
 class HasMage:
 	var _mage: MageCharacter
@@ -177,7 +177,7 @@ class BaseSpell extends HasMage:
 			CQueueTask.FinishAttack,
 			func(_d, task: ConditionalQueue.ConditionalQueueTask) -> bool:
 				var current = _mage.anim.get_current_upper_body_node()
-				var is_attack_animation = _mage.spell.is_attack_anim_name(current)
+				var is_attack_animation = _mage.abilities.is_attack_anim_name(current)
 				var is_started = task.data.get("started", false)
 				
 				# playback travel occures after the setup of this callback,
@@ -209,7 +209,7 @@ class Firepulse extends InstantSpell:
 	func prepare() -> void:
 		_handle_upper_body_blend2()
 		_mage.anim.play_upper_body(anim.state_name, AnimationUtil.Play.Start)
-		_mage.spell.buffer_active()
+		_mage.abilities.buffer_active_spell()
 		_mage.notify_casting_started()
 
 class Firebolt extends InstantSpell:
@@ -220,7 +220,7 @@ class Firebolt extends InstantSpell:
 	func prepare():
 		_handle_upper_body_blend2()
 		_mage.anim.play_upper_body(anim.state_name, AnimationUtil.Play.Start)
-		_mage.spell.buffer_active()
+		_mage.abilities.buffer_active_spell()
 		_mage.notify_casting_started()
 
 class Meteor extends BaseSpell:
@@ -240,7 +240,7 @@ class Meteor extends BaseSpell:
 	func cancel() -> void:
 		_mage.camera_node.use_captured_mouse()
 		_mage.aim_decal.visible = false
-		_mage.spell.unset_when_active(self)
+		_mage.abilities.unset_when_active(self)
 	
 	func handle_input(event: InputEvent) -> bool:
 		if event.is_action_pressed("ui_cancel"):
@@ -253,7 +253,7 @@ class Meteor extends BaseSpell:
 			_mage.camera_node.use_visible_mouse()
 			_mage.aim_decal.visible = false
 			
-			_mage.spell.buffer_active()
+			_mage.abilities.buffer_active_spell()
 			_mage.camera_node.use_captured_mouse()
 			_mage.notify_casting_started()
 			

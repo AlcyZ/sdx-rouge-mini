@@ -42,7 +42,7 @@ var lock: SimpleLock
 var anim: Animator
 var processor: Processor
 
-var spell: MageSpell
+var abilities: MageAbilities
 
 func _ready() -> void:
 	stats = Stats.new(self)
@@ -60,7 +60,7 @@ func _ready() -> void:
 	)
 	processor = Processor.new(self, anim.blender)
 	
-	spell = MageSpell.create(self,  [animation_shoot.state_name, animation_raise.state_name])
+	abilities = MageAbilities.create(self,  [animation_shoot.state_name, animation_raise.state_name])
 
 func notify_health_changed(current: float, total: float) -> void:
 	health_changed.emit(current, total)
@@ -79,7 +79,7 @@ func notify_casting_progressed(current: float, total: float) -> void:
 
 func _process(delta: float) -> void:
 	conditional_queue.process(delta)
-	spell.preparing(delta)
+	abilities.preparing(delta)
 
 func _unhandled_input(event: InputEvent) -> void:
 	processor.input.handle(event)
@@ -111,22 +111,22 @@ class Processor:
 	
 	class InputHandler extends HasMage:
 		func handle(event: InputEvent) -> void:
-			if _mage.spell.handle_input(event):
+			if _mage.abilities.handle_input(event):
 				_mage.get_viewport().set_input_as_handled()
 				return
 			
 			if event.is_action_pressed("attack"):
 				_mage.get_viewport().set_input_as_handled()
-				_mage.spell.prepare(_mage.spell.registry.pulse)
+				_mage.abilities.prepare_spell(_mage.abilities.registry.pulse)
 				return
 			
 			_mage.camera_node.handle_input(event)
 		
 		func use_skill(index: int) -> void:
 			match index:
-				0: _mage.spell.prepare(_mage.spell.registry.bolt)
+				0: _mage.abilities.prepare_spell(_mage.abilities.registry.bolt)
 				1: print("Todo: implement skill 1")
-				2: _mage.spell.prepare(_mage.spell.registry.meteor)
+				2: _mage.abilities.prepare_spell(_mage.abilities.registry.meteor)
 	
 	class Velocity extends HasMage:
 		func process(delta: float) -> void:

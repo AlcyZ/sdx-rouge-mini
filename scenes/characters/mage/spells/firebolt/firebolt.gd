@@ -2,7 +2,7 @@ extends Area3D
 
 @export var speed: float = 20.0
 @export var lifespan: float = 5.0
-@export var dmg: float = 5.0
+@export var dmg: float = 15
 
 func _ready() -> void:
 	get_tree().create_timer(lifespan).timeout.connect(queue_free)
